@@ -35,29 +35,44 @@ global main_thread, sol
 
 class form_object(npyscreen.Form):
     def plot(self, sol1):
-        global debug, debug2, fig, ax
+        global debug, debug2, fig, ax, hip_velocities, hip_torques, knee_velocities, knee_torques
 
-        plt.ion()
-
-        plt.clf()
+        # plt.clf()
 
         # plt.draw()
-        ax = plt.gca()
+        # ax[0][0] = plt.gca()
+        # ax[0][0] = plt.axes(xlim=(-1,1),ylim=(-2,0))
 
-        ax.plot(sol1[:, 0], sol1[:, 1])
+        # foot, = 
+        ax[0][0].cla()
+        ax[1][0].clear()
+        ax[1][1].clear()
+        ax[0][0].plot(sol1[:, 0], sol1[:, 1])
 
-        ax.set(xlabel='x', ylabel='y',
+        ax[0][0].set(xlabel='x', ylabel='y',
            title='Trajectory')
-        ax.grid()
+        ax[0][0].grid()
 
-        # ax[1].plot(hip_velocities, hip_torques)
+        ax[1][1].plot(no_load_speed, stall_torque)
+        ax[1][1].plot(hip_velocities, hip_torques)
 
-        # ax[1].set(xlabel='Velocity (rad/s)', ylabel='Torque (N-m)',
-     #       title='Hip Torque-Velocity')
-        # ax[1].grid()
+        ax[1][1].set(xlabel='Velocity (rad/s)', ylabel='Torque (N-m)',
+           title='Hip Torque-Velocity')
+        ax[1][1].grid()
+
+        ax[1][0].plot(no_load_speed, stall_torque)
+        ax[1][0].plot(knee_velocities, knee_torques)
+
+        ax[1][0].set(xlabel='Velocity (rad/s)', ylabel='Torque (N-m)',
+           title='Knee Torque-Velocity')
+        ax[1][0].grid()
+
         plt.draw()
         plt.pause(0.01)
-        
+    
+    # def animate():
+
+
     def create(self):
         global ux_slider, uy_slider, x0_slider, y0_slider, k_slider, main_thread, fig, ax, debug, debug2
         # main_thread.start()
@@ -68,15 +83,18 @@ class form_object(npyscreen.Form):
         y0_slider = self.add(npyscreen.TitleSlider, name = "y0:", value = 0.3, out_of = 1, step = 0.1)
         k_slider = self.add(npyscreen.TitleSlider, name = "k:", value = 180, out_of = 1000, step = 10)
 
-        debug = self.add(npyscreen.TitleText, name="Average time:")
-        debug2 = self.add(npyscreen.TitleText, name="Instantaneous time:")
+        # debug = self.add(npyscreen.TitleText, name="Average time:")
+        # debug2 = self.add(npyscreen.TitleText, name="Instantaneous time:")
 
-        fig, ax = plt.subplots()
+        plt.ion()
+        fig, ax = plt.subplots(ncols=2,nrows=2)
+
+        # plt.show(block=False)
         # plt.gca()
 
     def adjust_widgets(self):
         global sol, main_thread
-        debug.value = ""
+
         # main_thread.run()
         spring_mass_motion()
         self.plot(sol)
@@ -111,7 +129,6 @@ def function(a, t, x_0, y_0, timestep):
 
     # print dvy_dt
     return [dx_dt, dy_dt, dvx_dt, dvy_dt]
-
 
 def vertical_jump():
     #Calculate vel. required for takeoff at extension height
@@ -294,48 +311,64 @@ def spring_mass_motion():
     #Spring constant
     # k = 548
     # time = 0.
+    knee_torques = np.empty(shape=1)
+    hip_torques = np.empty(shape=1)
 
-    # for x,y in zip(i, j):
-    #   valid, joint_angles = ik.inverseKinematics(np.array([x,y]), branch=1)
-    #   print x, y
-    #   print valid
+    knee_velocities = np.empty(shape=1)
+    hip_velocities = np.empty(shape=1)
 
-    #   if not valid:
-    #       break;
-
-    #   joint_torques = np.zeros(2)
-    #   jacobian = ik.Jacobian(joint_angles) 
-    #   joint_torques = jacobian.T.dot(np.array([0, -mass * (a_y-g)]))
-
-    #   theta_dot = np.linalg.inv(jacobian).dot(np.array([v_x, v_y]))
-    #   # print "Torque:",joint_torques
-    #   knee_torques = np.append(knee_torques, joint_torques[1])
-    #   hip_torques = np.append(hip_torques, joint_torques[0])
-
-    #   # print "Velocity:",theta_dot
-    #   knee_velocities = np.append(knee_velocities, theta_dot[1])
-    #   hip_velocities = np.append(hip_velocities, theta_dot[0])
-
-    #   u_x = v_x
-    #   u_y = v_y
-
-    #   time = time + timestep
+    knee_torques = np.delete(knee_torques, 0, axis=0)
+    hip_torques = np.delete(hip_torques, 0, axis=0)
+    knee_velocities = np.delete(knee_velocities, 0, axis=0)
+    hip_velocities = np.delete(hip_velocities, 0, axis=0)
 
     seconds = 1.
     steps = 100
     times = np.linspace(0, seconds, steps)
     timestep = seconds/steps
 
-    debug2.value = uy_slider.value
     #Initial values:x0, y0, ux0, uy0
     A_0 = [x0_slider.value, -y0_slider.value, -ux_slider.value, uy_slider.value]
     # Initial length of spring in x and y specified in args
     sol = odeint(function, A_0, times, args=(0., -0.1, timestep))
-    i, j = sol[:, 0], sol[:, 1]
+    i, j, vx, vy = sol[:, 0], sol[:, 1], sol[:, 2], sol[:, 3]
 
-    # print sol
-    # plot(sol)
+    first_point = True
 
+    for x,y, v_x, v_y in zip(i, j, vx, vy):
+
+        valid, joint_angles = ik.inverseKinematics(np.array([x,y]), branch=1)
+
+        if not valid:
+            break;
+        jacobian = ik.Jacobian(joint_angles) 
+
+        if(first_point == False):
+            a_x = (v_x - u_x) / timestep
+            a_y = (v_y - u_y) / timestep
+
+            joint_torques = np.zeros(2)
+            joint_torques = jacobian.T.dot(np.array([mass * a_x, -mass * (a_y-g)]))
+            knee_torques = np.append(knee_torques, joint_torques[1])
+            hip_torques = np.append(hip_torques, joint_torques[0])
+
+
+        if(first_point == True):    
+            knee_torques = np.append(knee_torques, 0)
+            hip_torques = np.append(hip_torques, 0)
+
+            first_point = False
+
+        # print "Torque:",joint_torques
+
+
+        theta_dot = np.linalg.inv(jacobian).dot(np.array([v_x, v_y]))
+        # print "Velocity:",theta_dot
+        knee_velocities = np.append(knee_velocities, theta_dot[1])
+        hip_velocities = np.append(hip_velocities, theta_dot[0])
+
+        u_x = v_x
+        u_y = v_y
 
 if __name__ == '__main__':
     global main_thread
