@@ -1,9 +1,9 @@
 import numpy as np
-from math import sqrt, sin, cos, atan2
+from math import sqrt, sin, cos, atan2, radians
 import ik_class
 import matplotlib.pyplot as plt
 import npyscreen
-import threading
+import threading, math
 from scipy.integrate import odeint
 
 jump_height = 0.61
@@ -14,6 +14,9 @@ joint_angles = [0, 0]
 mass = 12.5
 knee_torques = np.empty(shape=1)
 hip_torques = np.empty(shape=1)
+
+spring_L0 = 0.4
+theta_0 = -45
 
 knee_velocities = np.empty(shape=1)
 hip_velocities = np.empty(shape=1)
@@ -37,50 +40,46 @@ class form_object(npyscreen.Form):
     def plot(self, sol1):
         global debug, debug2, fig, ax, hip_velocities, hip_torques, knee_velocities, knee_torques
 
-        # plt.clf()
-
         # plt.draw()
         # ax[0][0] = plt.gca()
         # ax[0][0] = plt.axes(xlim=(-1,1),ylim=(-2,0))
 
-        # foot, = 
         ax[0][0].cla()
         ax[1][0].clear()
         ax[1][1].clear()
-        ax[0][0].plot(sol1[:, 0], sol1[:, 1])
 
         ax[0][0].set(xlabel='x', ylabel='y',
            title='Trajectory')
         ax[0][0].grid()
+        ax[0][0].plot(sol1[:, 0], sol1[:, 1])
 
-        ax[1][1].plot(no_load_speed, stall_torque)
-        ax[1][1].plot(hip_velocities, hip_torques)
 
         ax[1][1].set(xlabel='Velocity (rad/s)', ylabel='Torque (N-m)',
            title='Hip Torque-Velocity')
         ax[1][1].grid()
+        ax[1][1].plot(no_load_speed, stall_torque)
+        ax[1][1].plot(hip_velocities, hip_torques)
 
-        ax[1][0].plot(no_load_speed, stall_torque)
-        ax[1][0].plot(knee_velocities, knee_torques)
 
         ax[1][0].set(xlabel='Velocity (rad/s)', ylabel='Torque (N-m)',
            title='Knee Torque-Velocity')
         ax[1][0].grid()
+        ax[1][0].plot(no_load_speed, stall_torque)
+        ax[1][0].plot(knee_velocities, knee_torques)
 
         plt.draw()
         plt.pause(0.01)
     
-    # def animate():
-
+    # def animate_init():
 
     def create(self):
-        global ux_slider, uy_slider, x0_slider, y0_slider, k_slider, main_thread, fig, ax, debug, debug2
+        global ux_slider, uy_slider, L0_slider, theta0_slider, k_slider, main_thread, fig, ax, debug, debug2
         # main_thread.start()
 
         ux_slider = self.add(npyscreen.TitleSlider, name = "ux:", value = 2., out_of = 5, step = 0.1)
         uy_slider = self.add(npyscreen.TitleSlider, name = "uy:", value = 2., out_of = 5, step = 0.1)
-        x0_slider = self.add(npyscreen.TitleSlider, name = "x0:", value = 0.3, out_of = 1, step = 0.1)
-        y0_slider = self.add(npyscreen.TitleSlider, name = "y0:", value = 0.3, out_of = 1, step = 0.1)
+        L0_slider = self.add(npyscreen.TitleSlider, name = "L0:", value = 0.3, out_of = 0.5, step = 0.05)
+        theta0_slider = self.add(npyscreen.TitleSlider, name = "theta_0:", value = 45, out_of = 90, step = 2)
         k_slider = self.add(npyscreen.TitleSlider, name = "k:", value = 180, out_of = 1000, step = 10)
 
         # debug = self.add(npyscreen.TitleText, name="Average time:")
@@ -89,23 +88,14 @@ class form_object(npyscreen.Form):
         plt.ion()
         fig, ax = plt.subplots(ncols=2,nrows=2)
 
-        # plt.show(block=False)
-        # plt.gca()
-
     def adjust_widgets(self):
         global sol, main_thread
 
-        # main_thread.run()
         spring_mass_motion()
         self.plot(sol)
 
     def afterEditing(self):
-        # global main_thread
         self.parentApp.setNextForm(None)
-        # main_thread.do_run = False
-        # main_thread.join()
-
-    
 
 class App(npyscreen.NPSAppManaged):
     def onStart(self):
@@ -292,7 +282,7 @@ def calc_vel_torq_curve(t, a_x, v_x, a_y, retracted_height, horizontal_dist):
     plt.show()
 
 def spring_mass_motion():
-    global knee_torques, hip_torques, knee_velocities, hip_velocities, x_motion, y_motion, ux_slider, uy_slider, x0_slider, y0_slider, sol, debug2
+    global knee_torques, hip_torques, knee_velocities, hip_velocities, x_motion, y_motion, ux_slider, uy_slider, L0_slider, theta0_slider, sol, debug2
 
     ik = ik_class.Serial2RKin()
 
@@ -323,20 +313,21 @@ def spring_mass_motion():
     hip_velocities = np.delete(hip_velocities, 0, axis=0)
 
     seconds = 1.
-    steps = 100
+    steps = 50
     times = np.linspace(0, seconds, steps)
     timestep = seconds/steps
 
     #Initial values:x0, y0, ux0, uy0
-    A_0 = [x0_slider.value, -y0_slider.value, -ux_slider.value, uy_slider.value]
+    x0 = L0_slider.value*cos(radians(-theta0_slider.value))
+    y0 = L0_slider.value*sin(radians(-theta0_slider.value))
+    A_0 = [x0, y0, -ux_slider.value, uy_slider.value]
     # Initial length of spring in x and y specified in args
-    sol = odeint(function, A_0, times, args=(0., -0.1, timestep))
+    sol = odeint(function, A_0, times, args=(x0, y0, timestep))
     i, j, vx, vy = sol[:, 0], sol[:, 1], sol[:, 2], sol[:, 3]
 
     first_point = True
 
     for x,y, v_x, v_y in zip(i, j, vx, vy):
-
         valid, joint_angles = ik.inverseKinematics(np.array([x,y]), branch=1)
 
         if not valid:
