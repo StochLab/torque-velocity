@@ -1,10 +1,13 @@
 import numpy as np
 from math import sqrt, sin, cos, atan2
+# from future import 
+import time
 import ik_class
 import matplotlib.pyplot as plt
 import npyscreen
 import threading
 from scipy.integrate import odeint
+from matplotlib.animation import FuncAnimation
 
 jump_height = 0.61
 extension_height = 0.55
@@ -34,8 +37,17 @@ no_load_speed = np.array([0, 28])
 global main_thread, sol
 
 class form_object(npyscreen.Form):
+    def init_animate(self):
+        return self.xy_motion,
+
+    def animate_update(self, frame):
+        global sol
+        self.xy_motion.set_data(sol[:frame, 0], sol[:frame, 1])
+        # debug.value = frame
+        return self.xy_motion,
+
     def plot(self, sol1):
-        global debug, debug2, fig, ax, hip_velocities, hip_torques, knee_velocities, knee_torques
+        global debug, debug2, hip_velocities, hip_torques, knee_velocities, knee_torques, knee_tau_vel, hip_tau_vel, xy_motion
 
         # plt.clf()
 
@@ -44,37 +56,57 @@ class form_object(npyscreen.Form):
         # ax[0][0] = plt.axes(xlim=(-1,1),ylim=(-2,0))
 
         # foot, = 
-        ax[0][0].cla()
-        ax[1][0].clear()
-        ax[1][1].clear()
-        ax[0][0].plot(sol1[:, 0], sol1[:, 1])
+        self.ax[0][0].cla()
+        self.ax[1][0].clear()
+        self.ax[1][1].clear()
 
-        ax[0][0].set(xlabel='x', ylabel='y',
-           title='Trajectory')
-        ax[0][0].grid()
+        self.xy_motion, = self.ax[0][0].plot([],[])
+        self.ax[0][0].set_xlim(-1, 1)
+        self.ax[0][0].set_ylim(-2, 0)
+        self.ax[0][0].set(xlabel='x', ylabel='y', title='Trajectory')
+        self.ax[0][0].grid()
 
-        ax[1][1].plot(no_load_speed, stall_torque)
-        ax[1][1].plot(hip_velocities, hip_torques)
+        self.ax[1][1].plot(no_load_speed, stall_torque)
+        self.ax[1][1].plot(hip_velocities, hip_torques)
 
-        ax[1][1].set(xlabel='Velocity (rad/s)', ylabel='Torque (N-m)',
-           title='Hip Torque-Velocity')
-        ax[1][1].grid()
+        self.ax[1][1].set(xlabel='Velocity (rad/s)', ylabel='Torque (N-m)', title='Hip Torque-Velocity')
+        self.ax[1][1].grid()
 
-        ax[1][0].plot(no_load_speed, stall_torque)
-        ax[1][0].plot(knee_velocities, knee_torques)
+        self.ax[1][0].plot(no_load_speed, stall_torque)
+        self.ax[1][0].plot(knee_velocities, knee_torques)
 
-        ax[1][0].set(xlabel='Velocity (rad/s)', ylabel='Torque (N-m)',
-           title='Knee Torque-Velocity')
-        ax[1][0].grid()
+        self.ax[1][0].set(xlabel='Velocity (rad/s)', ylabel='Torque (N-m)', title='Knee Torque-Velocity')
+        self.ax[1][0].grid()
 
-        plt.draw()
-        plt.pause(0.01)
+        self.ani = FuncAnimation(self.fig, self.animate_update, frames=len(sol[:,0]), blit = False, interval = 1, repeat = False)
+        # plt.show(block=False)
+        # plt.draw()
+        plt.pause(0.001)
     
-    # def animate():
+    def animate_all_plots():
+        self.xy_motion, = self.ax[0][0].plot([],[])
+        self.ax[0][0].set_xlim(-1, 1)
+        self.ax[0][0].set_ylim(-2, 0)
+        self.ax[0][0].set(xlabel='x', ylabel='y', title='Trajectory')
+        self.ax[0][0].grid()
 
+        self.ax[1][1].plot(no_load_speed, stall_torque)
+        self.ax[1][1].plot(hip_velocities, hip_torques)
+
+        self.ax[1][1].set(xlabel='Velocity (rad/s)', ylabel='Torque (N-m)', title='Hip Torque-Velocity')
+        self.ax[1][1].grid()
+
+        self.ax[1][0].plot(no_load_speed, stall_torque)
+        self.ax[1][0].plot(knee_velocities, knee_torques)
+
+        self.ax[1][0].set(xlabel='Velocity (rad/s)', ylabel='Torque (N-m)', title='Knee Torque-Velocity')
+        self.ax[1][0].grid()
+
+    def while_editing(self, y0_slider):
+        print("lol")
 
     def create(self):
-        global ux_slider, uy_slider, x0_slider, y0_slider, k_slider, main_thread, fig, ax, debug, debug2
+        global ux_slider, uy_slider, x0_slider, y0_slider, k_slider, main_thread, debug, debug2
         # main_thread.start()
 
         ux_slider = self.add(npyscreen.TitleSlider, name = "ux:", value = 2., out_of = 5, step = 0.1)
@@ -82,13 +114,12 @@ class form_object(npyscreen.Form):
         x0_slider = self.add(npyscreen.TitleSlider, name = "x0:", value = 0.3, out_of = 1, step = 0.1)
         y0_slider = self.add(npyscreen.TitleSlider, name = "y0:", value = 0.3, out_of = 1, step = 0.1)
         k_slider = self.add(npyscreen.TitleSlider, name = "k:", value = 180, out_of = 1000, step = 10)
-
+        button = self.add(npyscreen.ButtonPress, name = "Animate")
         # debug = self.add(npyscreen.TitleText, name="Average time:")
         # debug2 = self.add(npyscreen.TitleText, name="Instantaneous time:")
 
         plt.ion()
-        fig, ax = plt.subplots(ncols=2,nrows=2)
-
+        self.fig, self.ax = plt.subplots(ncols=2,nrows=2)
         # plt.show(block=False)
         # plt.gca()
 
@@ -144,9 +175,9 @@ def vertical_jump():
     #Time required for full extension
     #v_y = u + at (v_y = takeoff_vel, u = 0)
     t = takeoff_vel/a_y
-    print takeoff_vel
+    print(takeoff_vel)
 
-    print a_y
+    print(a_y)
     calc_vel_torq_curve(t, 0, 0, a_y, retracted_height, 0)
 
 def horizontal_move():
@@ -186,7 +217,7 @@ def sine_velocity():
         v_y = 0
 
         x = -(S_x/2) + t_inst * v_x
-        print x
+        print(x)
         a_x = (v_x - prev_vel_x)/t_inst
         a_y = (v_y - prev_vel_y)/t_inst
 
@@ -264,7 +295,7 @@ def calc_vel_torq_curve(t, a_x, v_x, a_y, retracted_height, horizontal_dist):
         #Calculate vel every time instant
         v_y = a_y * t_inst
         theta_dot = np.linalg.inv(jacobian).dot(np.array([v_x, v_y]))
-        print "Torque:",joint_torques
+        print("Torque:",joint_torques)
         knee_torques = np.append(knee_torques, joint_torques[1])
         hip_torques = np.append(hip_torques, joint_torques[0])
 
@@ -323,7 +354,7 @@ def spring_mass_motion():
     hip_velocities = np.delete(hip_velocities, 0, axis=0)
 
     seconds = 1.
-    steps = 100
+    steps = 25
     times = np.linspace(0, seconds, steps)
     timestep = seconds/steps
 
