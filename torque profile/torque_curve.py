@@ -4,6 +4,7 @@ from math import sqrt, sin, cos, atan2
 import time
 import ik_class
 import matplotlib.pyplot as plt
+import matplotlib.axes._subplots as axe
 import npyscreen
 import threading
 from scipy.integrate import odeint
@@ -37,73 +38,68 @@ no_load_speed = np.array([0, 28])
 global main_thread, sol
 
 class form_object(npyscreen.Form):
-    def init_animate(self):
-        return self.xy_motion,
-
-    def animate_update(self, frame):
-        global sol
-        self.xy_motion.set_data(sol[:frame, 0], sol[:frame, 1])
-        # debug.value = frame
-        return self.xy_motion,
-
     def plot(self, sol1):
         global debug, debug2, hip_velocities, hip_torques, knee_velocities, knee_torques, knee_tau_vel, hip_tau_vel, xy_motion
 
-        # plt.clf()
-
-        # plt.draw()
-        # ax[0][0] = plt.gca()
-        # ax[0][0] = plt.axes(xlim=(-1,1),ylim=(-2,0))
-
-        # foot, = 
         self.ax[0][0].cla()
         self.ax[1][0].clear()
         self.ax[1][1].clear()
 
-        self.xy_motion, = self.ax[0][0].plot([],[])
+        self.ax[0][0].plot(sol1[:, 0],sol1[:,1])
         self.ax[0][0].set_xlim(-1, 1)
-        self.ax[0][0].set_ylim(-2, 0)
+        self.ax[0][0].set_ylim(-1, 0)
         self.ax[0][0].set(xlabel='x', ylabel='y', title='Trajectory')
         self.ax[0][0].grid()
 
         self.ax[1][1].plot(no_load_speed, stall_torque)
         self.ax[1][1].plot(hip_velocities, hip_torques)
-
         self.ax[1][1].set(xlabel='Velocity (rad/s)', ylabel='Torque (N-m)', title='Hip Torque-Velocity')
         self.ax[1][1].grid()
 
         self.ax[1][0].plot(no_load_speed, stall_torque)
         self.ax[1][0].plot(knee_velocities, knee_torques)
-
         self.ax[1][0].set(xlabel='Velocity (rad/s)', ylabel='Torque (N-m)', title='Knee Torque-Velocity')
         self.ax[1][0].grid()
 
-        self.ani = FuncAnimation(self.fig, self.animate_update, frames=len(sol[:,0]), blit = False, interval = 1, repeat = False)
-        # plt.show(block=False)
-        # plt.draw()
         plt.pause(0.001)
     
-    def animate_all_plots():
-        self.xy_motion, = self.ax[0][0].plot([],[])
+    def init_animate_all_plots(self):
+        self.ax[0][0].cla()
+        self.ax[1][0].clear()
+        self.ax[1][1].clear()
+
+        self.xy_motion, = self.ax[0][0].plot([], [])
         self.ax[0][0].set_xlim(-1, 1)
-        self.ax[0][0].set_ylim(-2, 0)
+        self.ax[0][0].set_ylim(-1, 0)
         self.ax[0][0].set(xlabel='x', ylabel='y', title='Trajectory')
         self.ax[0][0].grid()
 
-        self.ax[1][1].plot(no_load_speed, stall_torque)
-        self.ax[1][1].plot(hip_velocities, hip_torques)
-
+        self.hip_tau_vel, self.ideal_hip_line = self.ax[1][1].plot([], [], [], [])
         self.ax[1][1].set(xlabel='Velocity (rad/s)', ylabel='Torque (N-m)', title='Hip Torque-Velocity')
         self.ax[1][1].grid()
 
-        self.ax[1][0].plot(no_load_speed, stall_torque)
-        self.ax[1][0].plot(knee_velocities, knee_torques)
-
+        self.knee_tau_vel, self.ideal_knee_line= self.ax[1][0].plot([], [], [], [])
         self.ax[1][0].set(xlabel='Velocity (rad/s)', ylabel='Torque (N-m)', title='Knee Torque-Velocity')
         self.ax[1][0].grid()
 
+        return self.xy_motion, self.hip_tau_vel, self.knee_tau_vel, self.ideal_hip_line, self.ideal_knee_line,
+
+    def update_animate_all_plots(self, frame):
+        global sol
+        self.ideal_hip_line.set_data(no_load_speed, stall_torque)
+        self.ideal_knee_line.set_data(no_load_speed, stall_torque)
+        self.xy_motion.set_data(sol[:frame, 0], sol[:frame, 1])
+        self.hip_tau_vel.set_data(hip_velocities[:frame], hip_torques[:frame])
+        self.knee_tau_vel.set_data(knee_velocities[:frame], knee_torques[:frame])
+
+        return self.xy_motion, self.hip_tau_vel, self.knee_tau_vel, self.ideal_hip_line, self.ideal_knee_line,
+
     def while_editing(self, y0_slider):
-        print("lol")
+        global sol
+        if 'sol' in globals():
+            self.ani = FuncAnimation(self.fig, self.update_animate_all_plots, frames=len(hip_velocities), init_func = self.init_animate_all_plots, blit = False, interval = 1, repeat = False)
+
+        plt.show(block=False)
 
     def create(self):
         global ux_slider, uy_slider, x0_slider, y0_slider, k_slider, main_thread, debug, debug2
@@ -114,29 +110,18 @@ class form_object(npyscreen.Form):
         x0_slider = self.add(npyscreen.TitleSlider, name = "x0:", value = 0.3, out_of = 1, step = 0.1)
         y0_slider = self.add(npyscreen.TitleSlider, name = "y0:", value = 0.3, out_of = 1, step = 0.1)
         k_slider = self.add(npyscreen.TitleSlider, name = "k:", value = 180, out_of = 1000, step = 10)
-        button = self.add(npyscreen.ButtonPress, name = "Animate")
-        # debug = self.add(npyscreen.TitleText, name="Average time:")
-        # debug2 = self.add(npyscreen.TitleText, name="Instantaneous time:")
 
-        plt.ion()
+        # plt.ion()
         self.fig, self.ax = plt.subplots(ncols=2,nrows=2)
-        # plt.show(block=False)
-        # plt.gca()
 
     def adjust_widgets(self):
         global sol, main_thread
 
-        # main_thread.run()
         spring_mass_motion()
         self.plot(sol)
 
     def afterEditing(self):
-        # global main_thread
         self.parentApp.setNextForm(None)
-        # main_thread.do_run = False
-        # main_thread.join()
-
-    
 
 class App(npyscreen.NPSAppManaged):
     def onStart(self):
@@ -353,7 +338,7 @@ def spring_mass_motion():
     knee_velocities = np.delete(knee_velocities, 0, axis=0)
     hip_velocities = np.delete(hip_velocities, 0, axis=0)
 
-    seconds = 1.
+    seconds = 0.5
     steps = 25
     times = np.linspace(0, seconds, steps)
     timestep = seconds/steps
