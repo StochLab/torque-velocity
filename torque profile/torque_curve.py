@@ -9,6 +9,7 @@ import npyscreen
 import threading
 from scipy.integrate import odeint
 from matplotlib.animation import FuncAnimation
+from multiprocessing import Process
 
 jump_height = 0.61
 extension_height = 0.55
@@ -35,7 +36,10 @@ y_motion = np.delete(y_motion, 0, axis=0)
 stall_torque = np.array([32, 0])
 no_load_speed = np.array([0, 28])
 
-global main_thread, sol
+max_knee_torque = max_hip_torque = 0
+min_knee_torque = min_hip_torque = 10000
+
+global sol
 
 class form_object(npyscreen.Form):
     def plot(self, sol1):
@@ -45,7 +49,10 @@ class form_object(npyscreen.Form):
         self.ax[1][0].clear()
         self.ax[1][1].clear()
 
+
         self.ax[0][0].plot(sol1[:, 0],sol1[:,1])
+        self.ax[0][0].scatter(sol[max_hip_torque_pos, 0], sol[max_hip_torque_pos, 1],c='red')
+        self.ax[0][0].scatter(sol[max_knee_torque_pos, 0], sol[max_knee_torque_pos, 1],c='green')
         self.ax[0][0].set_xlim(-1, 1)
         self.ax[0][0].set_ylim(-1, 0)
         self.ax[0][0].set(xlabel='x', ylabel='y', title='Trajectory')
@@ -86,6 +93,8 @@ class form_object(npyscreen.Form):
 
     def update_animate_all_plots(self, frame):
         global sol
+        self.ax[0][0].scatter(sol[max_hip_torque_pos, 0], sol[max_hip_torque_pos, 1])
+        self.ax[0][0].scatter(sol[max_knee_torque_pos, 0], sol[max_knee_torque_pos, 1])
         self.ideal_hip_line.set_data(no_load_speed, stall_torque)
         self.ideal_knee_line.set_data(no_load_speed, stall_torque)
         self.xy_motion.set_data(sol[:frame, 0], sol[:frame, 1])
@@ -94,28 +103,40 @@ class form_object(npyscreen.Form):
 
         return self.xy_motion, self.hip_tau_vel, self.knee_tau_vel, self.ideal_hip_line, self.ideal_knee_line,
 
-    def while_editing(self, y0_slider):
+    def animate_plots(self):
         global sol
         if 'sol' in globals():
             self.ani = FuncAnimation(self.fig, self.update_animate_all_plots, frames=len(hip_velocities), init_func = self.init_animate_all_plots, blit = False, interval = 1, repeat = False)
 
         plt.show(block=False)
 
+    def while_editing(self, y0_slider):
+        # global main_thread
+        main_thread = threading.Thread(target = self.animate_plots)
+
+        if main_thread.is_alive:
+            main_thread.run()
+
+        else:
+            main_thread.start()
+
     def create(self):
-        global ux_slider, uy_slider, x0_slider, y0_slider, k_slider, main_thread, debug, debug2
-        # main_thread.start()
+        global ux_slider, uy_slider, x0_slider, y0_slider, k_slider, mass_slider, peak_hip_torque, peak_knee_torque, peak_xy_position
 
         ux_slider = self.add(npyscreen.TitleSlider, name = "ux:", value = 2., out_of = 5, step = 0.1)
         uy_slider = self.add(npyscreen.TitleSlider, name = "uy:", value = 2., out_of = 5, step = 0.1)
         x0_slider = self.add(npyscreen.TitleSlider, name = "x0:", value = 0.3, out_of = 1, step = 0.1)
         y0_slider = self.add(npyscreen.TitleSlider, name = "y0:", value = 0.3, out_of = 1, step = 0.1)
         k_slider = self.add(npyscreen.TitleSlider, name = "k:", value = 180, out_of = 1000, step = 10)
+        mass_slider = self.add(npyscreen.TitleSlider, name = "Mass:", value = 12.5, out_of = 15, step = 1)
+        peak_hip_torque = self.add(npyscreen.TitleText, name = "Peak hip torque")
+        peak_knee_torque = self.add(npyscreen.TitleText, name = "Peak knee torque")
 
         # plt.ion()
         self.fig, self.ax = plt.subplots(ncols=2,nrows=2)
 
     def adjust_widgets(self):
-        global sol, main_thread
+        global sol
 
         spring_mass_motion()
         self.plot(sol)
@@ -308,25 +329,10 @@ def calc_vel_torq_curve(t, a_x, v_x, a_y, retracted_height, horizontal_dist):
     plt.show()
 
 def spring_mass_motion():
-    global knee_torques, hip_torques, knee_velocities, hip_velocities, x_motion, y_motion, ux_slider, uy_slider, x0_slider, y0_slider, sol, debug2
+    global knee_torques, hip_torques, knee_velocities, hip_velocities, x_motion, y_motion, ux_slider, uy_slider, x0_slider, y0_slider, sol, max_hip_torque, max_knee_torque, max_knee_torque_pos, max_hip_torque_pos, peak_hip_torque, peak_knee_torque
 
     ik = ik_class.Serial2RKin()
 
-    # ux_slider.value_changed_callback = plot
-    #Initial velocity
-    # u_x = 0.15
-    # u_y = -0.15
-
-    #Initial position
-    # x = -0.3
-    # y = 0.3
-
-    #Timestep
-    # timestep = 0.05
-
-    #Spring constant
-    # k = 548
-    # time = 0.
     knee_torques = np.empty(shape=1)
     hip_torques = np.empty(shape=1)
 
@@ -351,8 +357,9 @@ def spring_mass_motion():
 
     first_point = True
 
-    for x,y, v_x, v_y in zip(i, j, vx, vy):
+    count = 0
 
+    for x,y, v_x, v_y in zip(i, j, vx, vy):
         valid, joint_angles = ik.inverseKinematics(np.array([x,y]), branch=1)
 
         if not valid:
@@ -365,6 +372,17 @@ def spring_mass_motion():
 
             joint_torques = np.zeros(2)
             joint_torques = jacobian.T.dot(np.array([mass * a_x, -mass * (a_y-g)]))
+
+            if(abs(joint_torques[0]) > max_hip_torque):
+                max_hip_torque = joint_torques[0]
+                peak_hip_torque.value = max_hip_torque
+                max_hip_torque_pos = count
+
+            if(abs(joint_torques[1]) > max_knee_torque):
+                max_knee_torque = joint_torques[1]
+                peak_knee_torque.value = max_knee_torque
+                max_knee_torque_pos = count
+
             knee_torques = np.append(knee_torques, joint_torques[1])
             hip_torques = np.append(hip_torques, joint_torques[0])
 
@@ -375,25 +393,19 @@ def spring_mass_motion():
 
             first_point = False
 
-        # print "Torque:",joint_torques
-
-
         theta_dot = np.linalg.inv(jacobian).dot(np.array([v_x, v_y]))
-        # print "Velocity:",theta_dot
+
         knee_velocities = np.append(knee_velocities, theta_dot[1])
         hip_velocities = np.append(hip_velocities, theta_dot[0])
 
+        count = count + 1
         u_x = v_x
         u_y = v_y
 
 if __name__ == '__main__':
-    global main_thread
     # vertical_jump()
     # horizontal_move()
     # sine_velocity() 
-    main_thread = threading.Thread(target = spring_mass_motion)
-    main_thread.start()
 
-    # main_thread.run
     app = App().run()
     # spring_mass_motion()
