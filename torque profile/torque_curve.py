@@ -1,5 +1,5 @@
 import numpy as np
-from math import sqrt, sin, cos, atan2
+from math import sqrt, sin, cos, atan2, radians
 # from future import 
 import time
 import ik_class
@@ -17,6 +17,8 @@ retracted_height = 0.05
 g = -9.81
 joint_angles = [0, 0]
 mass = 12.5
+L_0 = 0.3
+theta_0 = 45
 knee_torques = np.empty(shape=1)
 hip_torques = np.empty(shape=1)
 
@@ -47,21 +49,21 @@ class form_object(npyscreen.Form):
 
         self.ax[0][0].cla()
         self.ax[1][0].clear()
-        self.ax[1][1].clear()
+        self.ax[0][1].clear()
 
 
         self.ax[0][0].plot(sol1[:, 0],sol1[:,1])
-        self.ax[0][0].scatter(sol[max_hip_torque_pos, 0], sol[max_hip_torque_pos, 1],c='red')
-        self.ax[0][0].scatter(sol[max_knee_torque_pos, 0], sol[max_knee_torque_pos, 1],c='green')
+        self.ax[0][0].scatter(sol[max_hip_torque_pos, 0], sol[max_hip_torque_pos, 1],c='green')
+        self.ax[0][0].scatter(sol[max_knee_torque_pos, 0], sol[max_knee_torque_pos, 1],c='red')
         self.ax[0][0].set_xlim(-1, 1)
         self.ax[0][0].set_ylim(-1, 0)
         self.ax[0][0].set(xlabel='x', ylabel='y', title='Trajectory')
         self.ax[0][0].grid()
 
-        self.ax[1][1].plot(no_load_speed, stall_torque)
-        self.ax[1][1].plot(hip_velocities, hip_torques)
-        self.ax[1][1].set(xlabel='Velocity (rad/s)', ylabel='Torque (N-m)', title='Hip Torque-Velocity')
-        self.ax[1][1].grid()
+        self.ax[0][1].plot(no_load_speed, stall_torque)
+        self.ax[0][1].plot(hip_velocities, hip_torques)
+        self.ax[0][1].set(xlabel='Velocity (rad/s)', ylabel='Torque (N-m)', title='Hip Torque-Velocity')
+        self.ax[0][1].grid()
 
         self.ax[1][0].plot(no_load_speed, stall_torque)
         self.ax[1][0].plot(knee_velocities, knee_torques)
@@ -73,7 +75,7 @@ class form_object(npyscreen.Form):
     def init_animate_all_plots(self):
         self.ax[0][0].cla()
         self.ax[1][0].clear()
-        self.ax[1][1].clear()
+        self.ax[0][1].clear()
 
         self.xy_motion, = self.ax[0][0].plot([], [])
         self.ax[0][0].set_xlim(-1, 1)
@@ -81,9 +83,9 @@ class form_object(npyscreen.Form):
         self.ax[0][0].set(xlabel='x', ylabel='y', title='Trajectory')
         self.ax[0][0].grid()
 
-        self.hip_tau_vel, self.ideal_hip_line = self.ax[1][1].plot([], [], [], [])
-        self.ax[1][1].set(xlabel='Velocity (rad/s)', ylabel='Torque (N-m)', title='Hip Torque-Velocity')
-        self.ax[1][1].grid()
+        self.hip_tau_vel, self.ideal_hip_line = self.ax[0][1].plot([], [], [], [])
+        self.ax[0][1].set(xlabel='Velocity (rad/s)', ylabel='Torque (N-m)', title='Hip Torque-Velocity')
+        self.ax[0][1].grid()
 
         self.knee_tau_vel, self.ideal_knee_line= self.ax[1][0].plot([], [], [], [])
         self.ax[1][0].set(xlabel='Velocity (rad/s)', ylabel='Torque (N-m)', title='Knee Torque-Velocity')
@@ -93,8 +95,8 @@ class form_object(npyscreen.Form):
 
     def update_animate_all_plots(self, frame):
         global sol
-        self.ax[0][0].scatter(sol[max_hip_torque_pos, 0], sol[max_hip_torque_pos, 1])
-        self.ax[0][0].scatter(sol[max_knee_torque_pos, 0], sol[max_knee_torque_pos, 1])
+        self.ax[0][0].scatter(sol[max_hip_torque_pos, 0], sol[max_hip_torque_pos, 1],c='green')
+        self.ax[0][0].scatter(sol[max_knee_torque_pos, 0], sol[max_knee_torque_pos, 1],c='red')
         self.ideal_hip_line.set_data(no_load_speed, stall_torque)
         self.ideal_knee_line.set_data(no_load_speed, stall_torque)
         self.xy_motion.set_data(sol[:frame, 0], sol[:frame, 1])
@@ -110,8 +112,10 @@ class form_object(npyscreen.Form):
 
         plt.show(block=False)
 
-    def while_editing(self, y0_slider):
+    def while_editing(self, theta0_slider):
         # global main_thread
+        # spring_mass_motion()
+
         main_thread = threading.Thread(target = self.animate_plots)
 
         if main_thread.is_alive:
@@ -121,16 +125,16 @@ class form_object(npyscreen.Form):
             main_thread.start()
 
     def create(self):
-        global ux_slider, uy_slider, x0_slider, y0_slider, k_slider, mass_slider, peak_hip_torque, peak_knee_torque, peak_xy_position
+        global ux_slider, uy_slider, L0_slider, theta0_slider, k_slider, mass_slider, peak_hip_torque, peak_knee_torque, peak_xy_position
 
         ux_slider = self.add(npyscreen.TitleSlider, name = "ux:", value = 2., out_of = 5, step = 0.1)
         uy_slider = self.add(npyscreen.TitleSlider, name = "uy:", value = 2., out_of = 5, step = 0.1)
-        x0_slider = self.add(npyscreen.TitleSlider, name = "x0:", value = 0.3, out_of = 1, step = 0.1)
-        y0_slider = self.add(npyscreen.TitleSlider, name = "y0:", value = 0.3, out_of = 1, step = 0.1)
+        L0_slider = self.add(npyscreen.TitleSlider, name = "L0:", value = 0.3, out_of = 0.5, step = 0.1)
+        theta0_slider = self.add(npyscreen.TitleSlider, name = "theta_0:", value = 45, out_of = 90, step = 2)
         k_slider = self.add(npyscreen.TitleSlider, name = "k:", value = 180, out_of = 1000, step = 10)
         mass_slider = self.add(npyscreen.TitleSlider, name = "Mass:", value = 12.5, out_of = 15, step = 1)
-        peak_hip_torque = self.add(npyscreen.TitleText, name = "Peak hip torque")
-        peak_knee_torque = self.add(npyscreen.TitleText, name = "Peak knee torque")
+        peak_hip_torque = self.add(npyscreen.TitleFixedText, name = "Peak hip torque")
+        peak_knee_torque = self.add(npyscreen.TitleFixedText, name = "Peak knee torque")
 
         # plt.ion()
         self.fig, self.ax = plt.subplots(ncols=2,nrows=2)
@@ -139,7 +143,14 @@ class form_object(npyscreen.Form):
         global sol
 
         spring_mass_motion()
+        peak_hip_torque.display()
+        peak_knee_torque.display()
         self.plot(sol)
+
+    def while_waiting(self):
+        global peak_hip_torque, peak_knee_torque
+        peak_hip_torque.display()
+        peak_knee_torque.display()
 
     def afterEditing(self):
         self.parentApp.setNextForm(None)
@@ -149,7 +160,7 @@ class App(npyscreen.NPSAppManaged):
         self.addForm('MAIN', form_object, name = "RBCCPS MPC CONTROLLER")
 
 def function(a, t, x_0, y_0, timestep):
-    global k_slider
+    global k_slider, mass_slider
     k = k_slider.value
     x, y, u_x, u_y = a
 
@@ -161,8 +172,8 @@ def function(a, t, x_0, y_0, timestep):
     dx_dt = u_x
     dy_dt = u_y
 
-    dvx_dt = k_x / mass * (x_0 - x) + u_x
-    dvy_dt = k_y / mass * (y_0 - y) + g + u_y
+    dvx_dt = k_x / mass_slider.value * (x_0 - x) + u_x
+    dvy_dt = k_y / mass_slider.value * (y_0 - y) + g + u_y
 
     # print dvy_dt
     return [dx_dt, dy_dt, dvx_dt, dvy_dt]
@@ -329,7 +340,10 @@ def calc_vel_torq_curve(t, a_x, v_x, a_y, retracted_height, horizontal_dist):
     plt.show()
 
 def spring_mass_motion():
-    global knee_torques, hip_torques, knee_velocities, hip_velocities, x_motion, y_motion, ux_slider, uy_slider, x0_slider, y0_slider, sol, max_hip_torque, max_knee_torque, max_knee_torque_pos, max_hip_torque_pos, peak_hip_torque, peak_knee_torque
+    global knee_torques, hip_torques, knee_velocities, hip_velocities, x_motion, y_motion, ux_slider, uy_slider, L0_slider, theta0_slider, sol, max_hip_torque, max_knee_torque, max_knee_torque_pos, max_hip_torque_pos, peak_hip_torque, peak_knee_torque, mass_slider
+
+    max_knee_torque = max_hip_torque = 0
+    min_knee_torque = min_hip_torque = 10000
 
     ik = ik_class.Serial2RKin()
 
@@ -349,10 +363,13 @@ def spring_mass_motion():
     times = np.linspace(0, seconds, steps)
     timestep = seconds/steps
 
+    x0 =  L0_slider.value * cos(radians(-theta0_slider.value))
+    y0 =  L0_slider.value * sin(radians(-theta0_slider.value))
+
     #Initial values:x0, y0, ux0, uy0
-    A_0 = [x0_slider.value, -y0_slider.value, -ux_slider.value, uy_slider.value]
+    A_0 = [x0, y0, -ux_slider.value, uy_slider.value]
     # Initial length of spring in x and y specified in args
-    sol = odeint(function, A_0, times, args=(0., -0.1, timestep))
+    sol = odeint(function, A_0, times, args=(x0, y0, timestep))
     i, j, vx, vy = sol[:, 0], sol[:, 1], sol[:, 2], sol[:, 3]
 
     first_point = True
@@ -371,16 +388,14 @@ def spring_mass_motion():
             a_y = (v_y - u_y) / timestep
 
             joint_torques = np.zeros(2)
-            joint_torques = jacobian.T.dot(np.array([mass * a_x, -mass * (a_y-g)]))
+            joint_torques = jacobian.T.dot(np.array([mass_slider.value * a_x, -mass_slider.value * (a_y-g)]))
 
             if(abs(joint_torques[0]) > max_hip_torque):
                 max_hip_torque = joint_torques[0]
-                peak_hip_torque.value = max_hip_torque
                 max_hip_torque_pos = count
 
             if(abs(joint_torques[1]) > max_knee_torque):
                 max_knee_torque = joint_torques[1]
-                peak_knee_torque.value = max_knee_torque
                 max_knee_torque_pos = count
 
             knee_torques = np.append(knee_torques, joint_torques[1])
@@ -401,6 +416,11 @@ def spring_mass_motion():
         count = count + 1
         u_x = v_x
         u_y = v_y
+
+    peak_knee_torque.value = str(max_knee_torque)
+    peak_hip_torque.value = str(max_hip_torque)
+
+    # peak_knee_torque.update()
 
 if __name__ == '__main__':
     # vertical_jump()
