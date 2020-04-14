@@ -24,6 +24,8 @@ theta_0 = 45
 kv = 90
 kt = 60 / (2 * np.pi * kv)
 
+k = 500
+
 knee_torques = np.empty(shape=1)
 hip_torques = np.empty(shape=1)
 
@@ -47,6 +49,8 @@ x_motion = np.delete(x_motion, 0, axis=0)
 y_motion = np.delete(y_motion, 0, axis=0)
 
 knee_positive_points = hip_positive_points = []
+total_energies = []
+
 stall_torque = np.array([32, 0])
 no_load_speed = np.array([0, 28])
 
@@ -173,43 +177,46 @@ class form_object(npyscreen.Form):
             main_thread.start()
 
     def create(self):
-        global ux_slider, uy_slider, L0_slider, theta0_slider, k_slider, mass_slider, peak_hip_torque, peak_knee_torque, peak_hip_current, peak_knee_current, peak_xy_position, debug
+        global ux_slider, uy_slider, L0_slider, theta0_slider, k_slider, mass_slider, peak_hip_torque, peak_knee_torque, peak_hip_current, peak_knee_current, peak_xy_position, energy_change, total_power_text
 
         ux_slider = self.add(npyscreen.TitleSlider, name = "ux:", value = 0.0, out_of = 5, step = 0.1)
         uy_slider = self.add(npyscreen.TitleSlider, name = "uy:", value = 0.0, out_of = 5, step = 0.1)
         L0_slider = self.add(npyscreen.TitleSlider, name = "L0:", value = 0.3, out_of = 0.5, step = 0.1)
         theta0_slider = self.add(npyscreen.TitleSlider, name = "theta_0:", value = 45, out_of = 90, step = 2)
-        k_slider = self.add(npyscreen.TitleSlider, name = "k:", value = 800, out_of = 1000, step = 10)
-        mass_slider = self.add(npyscreen.TitleSlider, name = "Mass:", value = 6.5, out_of = 15, step = 1)
+        k_slider = self.add(npyscreen.TitleSlider, name = "k:", value = 500, out_of = 1000, step = 10)
+        mass_slider = self.add(npyscreen.TitleSlider, name = "Mass:", value = 12.5, out_of = 15, step = 1)
 
         peak_hip_torque = self.add(npyscreen.TitleFixedText, name = "Peak hip torque")
         peak_knee_torque = self.add(npyscreen.TitleFixedText, name = "Peak knee torque")
         peak_hip_current = self.add(npyscreen.TitleFixedText, name = "Peak hip current, power, RMS power")
         peak_knee_current = self.add(npyscreen.TitleFixedText, name = "Peak knee current, power, RMS Power")
-        debug = self.add(npyscreen.TitleFixedText, name = "Total Energy")
+        energy_change = self.add(npyscreen.TitleFixedText, name = "Change in Energy")
+        total_power_text = self.add(npyscreen.TitleFixedText, name = "Power")
 
         # plt.ion()
         self.fig, self.ax = plt.subplots(ncols=2,nrows=3)
 
     def adjust_widgets(self):
-        global sol, debug, failed
+        global sol, energy_change, failed
 
         spring_mass_motion()
         peak_hip_torque.display()
         peak_knee_torque.display()
-        debug.display()
+        energy_change.display()
+        total_power_text.display()
         peak_hip_current.display()
         peak_knee_current.display()
 
         if(not failed):
-            debug.value = ""
+            energy_change.value = ""
             self.plot(sol)
 
     def while_waiting(self):
         global peak_hip_torque, peak_knee_torque
         peak_hip_torque.display()
         peak_knee_torque.display()
-        debug.display()
+        energy_change.display()
+        total_power_text.display()
 
     def afterEditing(self):
         self.parentApp.setNextForm(None)
@@ -234,7 +241,7 @@ def spring_mass_dynamics(t, a):
     mass = mass_slider.value
 
     # l0 = 0.3
-    # k = 10
+    # k = 100
     # mass = 12.5
 
     x, y, u_x, u_y = a
@@ -452,11 +459,11 @@ def calc_vel_torq_curve(t, a_x, v_x, a_y, retracted_height, horizontal_dist):
     plt.show()
 
 def spring_mass_motion():
-    global sol, max_hip_torque, max_knee_torque, max_knee_torque_pos, max_hip_torque_pos, peak_hip_torque, peak_knee_torque, pos_power_start, hip_positive_points, knee_positive_points, valid_workspace, debug, times, hip_torques, knee_torques, hip_velocities, knee_velocities, knee_powers, hip_powers, knee_currents, hip_currents, peak_hip_current, peak_knee_current, L0_slider, event_encountered, failed
+    global sol, max_hip_torque, max_knee_torque, max_knee_torque_pos, max_hip_torque_pos, peak_hip_torque, peak_knee_torque, pos_power_start, hip_positive_points, knee_positive_points, valid_workspace, energy_change, times, hip_torques, knee_torques, hip_velocities, knee_velocities, knee_powers, hip_powers, knee_currents, hip_currents, peak_hip_current, peak_knee_current, L0_slider, event_encountered, failed, total_power
 
     # theta0 = 45
     # L0 = 0.3
-    # ux = 0
+    # ux = 1
     # uy = 0
     # mass = 12.5
 
@@ -465,8 +472,9 @@ def spring_mass_motion():
     ux = ux_slider.value
     uy = uy_slider.value
     mass = mass_slider.value
+    k = k_slider.value
 
-    # debug.value = ""
+    # energy_change.value = ""
     max_knee_torque = max_hip_torque = 0
     min_knee_torque = min_hip_torque = 10000
 
@@ -492,7 +500,7 @@ def spring_mass_motion():
     knee_velocities = np.delete(knee_velocities, 0, axis=0)
     hip_velocities = np.delete(hip_velocities, 0, axis=0)
 
-    seconds = 0.5
+    seconds = 0.2
     steps = 25
     times = np.linspace(0, seconds, steps)
     timestep = seconds/steps
@@ -500,8 +508,10 @@ def spring_mass_motion():
     x0 =  L0 * cos(radians(theta0+90))
     y0 =  L0 * sin(radians(theta0+90))
 
+    x0 = ux * 0.3 / 2 * -1  #Eq. for finding nominal position for foot, -1 because we want body on the left side
+
     #Initial values:x0, y0, ux0, uy0
-    A_0 = [x0, y0, ux, -uy]
+    A_0 = [x0, L0, ux, -uy]
     # Initial length of spring in x and y specified in args
     sol = solve_ivp(spring_mass_dynamics, [0, seconds], A_0, t_eval=times, events=(spring_stretch, touch_ground), dense_output=False)
     # sol = solve_ivp(spring_mass_dynamics, [0, seconds], A_0, t_eval=times, dense_output=True)
@@ -521,6 +531,7 @@ def spring_mass_motion():
 
     count = 0
     knee_positive_points = hip_positive_points = []
+    total_energies = []
 
     # for x, y, v_x, v_y in zip(i, j, vx, vy):
     for t, x, y, v_x, v_y in sol:
@@ -536,7 +547,7 @@ def spring_mass_motion():
 
         jacobian = ik.Jacobian(joint_angles) 
 
-        # print(t, x, y)
+        # print(x, y)
         # print(joint_angles)
         if(first_point == False):
             a_x = (v_x - u_x) / timestep
@@ -590,7 +601,7 @@ def spring_mass_motion():
 
             knee_powers = np.append(knee_powers, knee_power)
             hip_powers = np.append(hip_powers, hip_power)
-            # print(copysign(1,total_power))
+            # print("Knee power:",knee_power)
 
             if(total_power > 0):
                 pos_power_start = count
@@ -613,19 +624,26 @@ def spring_mass_motion():
         u_y = v_y
         valid_workspace = count
 
-        # debug.value = debug.value + " " + str(mass_slider.value * 9.81 * (y) + 0.5 * k_slider.value * (y0 - y) ** 2 + 0.5 * mass_slider.value * v_y ** 2) 
+        l = sqrt(x ** 2 + y ** 2)
+        v = sqrt(v_x ** 2 + v_y ** 2)
+        spring_energy = 0.5 * k * (L0 - l) ** 2
+        mass_energy = mass * 9.81 * (y) + 0.5 * mass * v ** 2
 
-    # debug.value = np.trapz(knee_powers, dx = timestep)
-    # debug.value = str(v_y)+" "+str(np.sqrt(np.mean(np.square(knee_currents))))
-    # debug.value = str(len(times)) + " " + str(len(knee_currents)) + " " + str(valid_workspace)
+        total_energies.append(mass_energy + spring_energy)
+        energy_change.value = str(total_energies[-1] - total_energies[0])
+
+
+    total_power_text.value = np.trapz(knee_powers, dx = timestep)
+    # energy_change.value = str(v_y)+" "+str(np.sqrt(np.mean(np.square(knee_currents))))
+    # energy_change.value = str(len(times)) + " " + str(len(knee_currents)) + " " + str(valid_workspace)
 
     if(len(hip_currents) == 0 or len(sol) < 2):
         failed = True
-        debug.value = "Failed"
+        energy_change.value = "Failed"
 
     if(len(hip_currents) != 0 or len(sol) > 2):
         failed = False
-        debug.value = ""
+        # energy_change.value = ""
         knee_power_rms = np.sqrt(np.mean(np.square(knee_powers)))
         hip_power_rms = np.sqrt(np.mean(np.square(hip_powers)))
         peak_hip_current.value = str(max(hip_currents))+" "+str(max(hip_powers))+" "+str(hip_power_rms)
