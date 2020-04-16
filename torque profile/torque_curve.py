@@ -615,10 +615,11 @@ def spring_mass_motion():
         spring_energy = 0.5 * k * (L0 - l) ** 2
         mass_energy = mass * 9.81 * (y) + 0.5 * mass * v ** 2
 
-        if(len(total_energies) > 0):
-            total_energies.append(mass_energy + spring_energy)
+        total_energies.append(mass_energy + spring_energy)
         # energy_change.value = energy_change.value + " " + str(mass_energy + spring_energy)        
-    energy_change.value = str(total_energies[-1] - total_energies[0])
+        
+    if(len(total_energies) > 0):
+        energy_change.value = str(total_energies[-1] - total_energies[0])
 
     total_power_text.value = np.trapz(knee_powers, dx = timestep)
     # energy_change.value = str(v_y)+" "+str(np.sqrt(np.mean(np.square(knee_currents))))
